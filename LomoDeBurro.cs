@@ -3,94 +3,159 @@ using System;
 using UnityEngine;
 
 // Clase principal para el lomo de burro
-public class LomoDeBurro
+public class LomoDeBurro : MonoBehaviour
 {
-    public float Altura { get; private set; }
-    public float Longitud { get; private set; }
-    public float Posicion { get; private set; }
-    public bool EstaActivo { get; set; }
+    [SerializeField] private float altura = 0.2f;
+    [SerializeField] private float longitud = 2f;
+    [SerializeField] private bool estaActivo = true;
 
-    public LomoDeBurro(float altura, float longitud, float posicion)
+    public float Altura => altura;
+    public float Longitud => longitud;
+    public float Posicion => transform.position.z;
+    public bool EstaActivo { get => estaActivo; set => estaActivo = value; }
+
+    private void OnValidate()
     {
-        Altura = altura;
-        Longitud = longitud;
-        Posicion = posicion;
-        EstaActivo = true;
+        // Asegurarse de que los valores sean positivos
+        altura = Mathf.Max(0, altura);
+        longitud = Mathf.Max(0.1f, longitud);
     }
 
-    // MÈtodo para calcular el efecto del lomo de burro en el vehÌculo
+    // M√©todo para calcular el efecto del lomo de burro en el veh√≠culo
     public float CalcularEfecto(float velocidadVehiculo)
     {
         if (!EstaActivo)
             return 0f;
 
-        // A mayor velocidad, mayor ser· el impacto del lomo de burro
-        return velocidadVehiculo > 30 ? velocidadVehiculo * 0.2f : velocidadVehiculo * 0.1f;
+        // A mayor velocidad, mayor ser√° el impacto del lomo de burro
+        float factorImpacto = velocidadVehiculo > 30 ? 0.2f : 0.1f;
+        return velocidadVehiculo * factorImpacto * altura;
+    }
+
+    private void OnDrawGizmos()
+    {
+        // Visualizar el lomo de burro en el editor
+        Gizmos.color = EstaActivo ? Color.yellow : Color.gray;
+        Vector3 size = new Vector3(2f, altura, longitud);
+        Gizmos.DrawWireCube(transform.position + Vector3.up * (altura/2), size);
     }
 }
 
 // Gestor de lomos de burro en la carretera
-public class GestorLomosDeBurro
+public class GestorLomosDeBurro : MonoBehaviour
 {
-    private List<LomoDeBurro> _lomosDeBurro;
+    [SerializeField] private float margenDeteccion = 5.0f;
+    private List<LomoDeBurro> _lomosDeBurro = new List<LomoDeBurro>();
 
-    public GestorLomosDeBurro()
+    private void Awake()
     {
-        _lomosDeBurro = new List<LomoDeBurro>();
+        // Encontrar todos los lomos de burro en la escena
+        _lomosDeBurro.AddRange(FindObjectsOfType<LomoDeBurro>());
     }
 
-    public void AgregarLomoDeBurro(float altura, float longitud, float posicion)
+    public void RegistrarLomoDeBurro(LomoDeBurro lomo)
     {
-        _lomosDeBurro.Add(new LomoDeBurro(altura, longitud, posicion));
+        if (!_lomosDeBurro.Contains(lomo))
+        {
+            _lomosDeBurro.Add(lomo);
+        }
     }
 
-    public LomoDeBurro ObtenerLomoDeBurroCercano(float posicionVehiculo, float margenDeteccion)
+    public void DesregistrarLomoDeBurro(LomoDeBurro lomo)
     {
-        return _lomosDeBurro.FirstOrDefault(lomo =>
-            Math.Abs(lomo.Posicion - posicionVehiculo) < margenDeteccion && lomo.EstaActivo);
+        _lomosDeBurro.Remove(lomo);
+    }
+
+    public LomoDeBurro ObtenerLomoDeBurroCercano(float posicionVehiculo)
+    {
+        LomoDeBurro lomoMasCercano = null;
+        float distanciaMinima = margenDeteccion;
+
+        foreach (var lomo in _lomosDeBurro)
+        {
+            if (!lomo.EstaActivo) continue;
+
+            float distancia = Mathf.Abs(lomo.Posicion - posicionVehiculo);
+            if (distancia < distanciaMinima)
+            {
+                distanciaMinima = distancia;
+                lomoMasCercano = lomo;
+            }
+        }
+
+        return lomoMasCercano;
+    }
+
+    private void OnDrawGizmos()
+    {
+        // Visualizar el √°rea de detecci√≥n en el editor
+        Gizmos.color = new Color(1f, 0f, 0f, 0.2f);
+        Gizmos.DrawWireSphere(transform.position, margenDeteccion);
     }
 }
 
-// Detector de lomos de burro para el vehÌculo
-public class DetectorLomoDeBurro
+// Detector de lomos de burro para el veh√≠culo
+public class DetectorLomoDeBurro : MonoBehaviour
 {
+    [SerializeField] private GestorLomosDeBurro gestorLomos;
+    [SerializeField] private float factorReduccionVelocidad = 1f;
+    [SerializeField] private float umbralSacudida = 5.0f;
+    
     private Vehiculo _vehiculo;
-    private GestorLomosDeBurro _gestorLomos;
-    private float _margenDeteccion = 5.0f;
 
     public event Action<float> LomoDeBurroDetectado;
 
-    public DetectorLomoDeBurro(Vehiculo vehiculo, GestorLomosDeBurro gestorLomos)
+    private void Awake()
     {
-        _vehiculo = vehiculo;
-        _gestorLomos = gestorLomos;
+        _vehiculo = GetComponent<Vehiculo>();
+        if (_vehiculo == null)
+        {
+            Debug.LogError("No se encontr√≥ el componente Vehiculo en el mismo GameObject");
+        }
+
+        if (gestorLomos == null)
+        {
+            gestorLomos = FindObjectOfType<GestorLomosDeBurro>();
+            if (gestorLomos == null)
+            {
+                Debug.LogError("No se encontr√≥ el GestorLomosDeBurro en la escena");
+            }
+        }
     }
 
-    // Este mÈtodo se deberÌa llamar en cada actualizaciÛn del juego
-    public void Actualizar()
+    private void Update()
     {
-        var lomoCercano = _gestorLomos.ObtenerLomoDeBurroCercano(_vehiculo.Posicion, _margenDeteccion);
+        if (_vehiculo == null || gestorLomos == null) return;
+
+        var lomoCercano = gestorLomos.ObtenerLomoDeBurroCercano(_vehiculo.Posicion);
 
         if (lomoCercano != null)
         {
             float impacto = lomoCercano.CalcularEfecto(_vehiculo.VelocidadActual);
             LomoDeBurroDetectado?.Invoke(impacto);
-
-            // Aplicar efecto al vehÌculo directamente si es necesario
             AplicarEfectoAlVehiculo(impacto);
         }
     }
 
     private void AplicarEfectoAlVehiculo(float impacto)
     {
-        // AquÌ podrÌas reducir la velocidad del vehÌculo
-        _vehiculo.VelocidadActual = Math.Max(0, _vehiculo.VelocidadActual - impacto);
+        // Reducir la velocidad del veh√≠culo
+        _vehiculo.VelocidadActual = Mathf.Max(0, _vehiculo.VelocidadActual - (impacto * factorReduccionVelocidad));
 
-        // TambiÈn podrÌas simular la sacudida del vehÌculo
-        if (impacto > 5.0f)
+        // Simular la sacudida del veh√≠culo
+        if (impacto > umbralSacudida)
         {
-            // Notificar al sistema de fÌsica o al sistema de efectos visuales
-            Console.WriteLine($"El vehÌculo se sacude con intensidad {impacto}");
+            // Aplicar una fuerza hacia arriba al veh√≠culo
+            if (TryGetComponent<Rigidbody>(out var rb))
+            {
+                rb.AddForce(Vector3.up * impacto, ForceMode.Impulse);
+            }
+
+            // Reproducir efectos de sonido o part√≠culas si est√°n configurados
+            if (TryGetComponent<AudioSource>(out var audioSource))
+            {
+                audioSource.Play();
+            }
         }
     }
 }
